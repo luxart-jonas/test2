@@ -13,10 +13,6 @@
   .api-row input{flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:6px;font-size:.82rem;outline:none;}
   .api-row input::placeholder{color:var(--muted);}
   .api-row button{background:#3a7a3a;color:#fff;border:none;padding:9px 14px;border-radius:6px;cursor:pointer;font-size:.82rem;white-space:nowrap;}
-  .proxy-status{width:100%;max-width:480px;font-size:.75rem;margin-bottom:16px;display:flex;align-items:center;gap:6px;color:var(--muted);}
-  .dot{width:7px;height:7px;border-radius:50%;background:var(--border);flex-shrink:0;}
-  .dot.ok{background:var(--green);box-shadow:0 0 6px var(--green);}
-  .dot.err{background:#e74c3c;}
   .upload-zone{width:100%;max-width:480px;border:1.5px dashed var(--border);border-radius:12px;padding:40px 20px;text-align:center;cursor:pointer;position:relative;background:var(--surface);transition:border-color .2s;}
   .upload-zone:hover{border-color:var(--green);}
   .upload-zone input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;}
@@ -41,20 +37,15 @@
 <body>
 <h1>🌿 PlantNet</h1>
 
-<div class="proxy-status">
-  <div class="dot" id="dot"></div>
-  <span id="proxyTxt">Prüfe Proxy …</span>
-</div>
-
 <div class="api-row">
   <input type="password" id="keyInput" placeholder="PlantNet API-Key …">
   <button onclick="saveKey()">Speichern</button>
 </div>
 
 <div class="upload-zone" id="zone">
-  <input type="file" id="fileInput" accept="image/*" onchange="handleFile(this.files[0])">
+  <input type="file" id="fileInput" accept="image/*" capture="environment" onchange="handleFile(this.files[0])">
   <div style="font-size:2rem">🌿</div>
-  <p>Foto hochladen oder reinziehen</p>
+  <p>Foto aufnehmen oder hochladen</p>
 </div>
 
 <div id="preview">
@@ -72,25 +63,12 @@
 <div class="results" id="results"></div>
 
 <script>
-const PROXY = 'http://localhost:3002';
+const PROXY = 'https://ormpszktwwiahjooukjk.supabase.co/functions/v1/plantnet-proxy';
 const STORE = 'plantnet_key';
 let file = null, organ = 'auto';
 
 const saved = localStorage.getItem(STORE);
 if (saved) document.getElementById('keyInput').value = saved;
-
-async function checkProxy() {
-  try {
-    await fetch(PROXY + '/v2/identify/all?check=1', { method: 'OPTIONS', signal: AbortSignal.timeout(2000) });
-    document.getElementById('dot').className = 'dot ok';
-    document.getElementById('proxyTxt').textContent = 'Proxy aktiv auf localhost:3002';
-  } catch {
-    document.getElementById('dot').className = 'dot err';
-    document.getElementById('proxyTxt').textContent = 'Proxy nicht erreichbar — Terminal: node proxy-plantnet.js';
-  }
-}
-checkProxy();
-setInterval(checkProxy, 8000);
 
 function saveKey() {
   const k = document.getElementById('keyInput').value.trim();
@@ -133,7 +111,7 @@ async function identify() {
     const fd = new FormData();
     fd.append('images', file, file.name);
     if (organ !== 'auto') fd.append('organs', organ);
-    const url = `${PROXY}/v2/identify/all?api-key=${encodeURIComponent(key)}&nb-results=5&lang=de&include-related-images=false`;
+    const url = `${PROXY}?api-key=${encodeURIComponent(key)}&nb-results=5&lang=de`;
     const res = await fetch(url, { method: 'POST', body: fd });
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`);
