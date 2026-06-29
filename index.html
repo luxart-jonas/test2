@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PlantNet</title>
+<style>
+  :root { --bg:#0d1a0f;--surface:#131f14;--surface2:#1a2b1c;--border:#2a3d2c;--green:#5db85d;--leaf:#8fbc5a;--text:#e8f0e9;--muted:#7a9c7e; }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:24px 16px 60px;}
+  h1{font-size:1.3rem;color:var(--leaf);margin-bottom:20px;}
+  .api-row{width:100%;max-width:480px;display:flex;gap:8px;margin-bottom:20px;}
+  .api-row input{flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:6px;font-size:.82rem;outline:none;}
+  .api-row input::placeholder{color:var(--muted);}
+  .api-row button{background:#3a7a3a;color:#fff;border:none;padding:9px 14px;border-radius:6px;cursor:pointer;font-size:.82rem;white-space:nowrap;}
+  .proxy-status{width:100%;max-width:480px;font-size:.75rem;margin-bottom:16px;display:flex;align-items:center;gap:6px;color:var(--muted);}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--border);flex-shrink:0;}
+  .dot.ok{background:var(--green);box-shadow:0 0 6px var(--green);}
+  .dot.err{background:#e74c3c;}
+  .upload-zone{width:100%;max-width:480px;border:1.5px dashed var(--border);border-radius:12px;padding:40px 20px;text-align:center;cursor:pointer;position:relative;background:var(--surface);transition:border-color .2s;}
+  .upload-zone:hover{border-color:var(--green);}
+  .upload-zone input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;}
+  .upload-zone p{color:var(--muted);font-size:.88rem;margin-top:8px;}
+  #preview{display:none;width:100%;max-width:480px;margin-top:16px;}
+  #preview img{width:100%;max-height:300px;object-fit:contain;border-radius:10px;border:1px solid var(--border);}
+  .organ-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;}
+  .organ-btn{background:var(--surface2);border:1px solid var(--border);color:var(--muted);padding:5px 12px;border-radius:20px;font-size:.75rem;cursor:pointer;}
+  .organ-btn.active{border-color:var(--green);color:var(--green);background:rgba(93,184,93,.08);}
+  #status{margin-top:12px;font-size:.8rem;color:var(--muted);min-height:20px;text-align:center;width:100%;max-width:480px;}
+  .results{width:100%;max-width:480px;margin-top:16px;display:flex;flex-direction:column;gap:10px;}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;display:grid;grid-template-columns:1fr auto;gap:4px 12px;}
+  .sci{font-style:italic;color:var(--leaf);font-size:1rem;}
+  .common{font-size:.82rem;color:var(--muted);margin-top:2px;}
+  .family{font-size:.7rem;color:var(--muted);margin-top:4px;text-transform:uppercase;letter-spacing:.04em;}
+  .pct{font-size:1.1rem;font-weight:600;color:var(--green);text-align:right;}
+  .bar-wrap{width:44px;height:3px;background:var(--border);border-radius:2px;margin-top:6px;}
+  .bar{height:100%;background:var(--green);border-radius:2px;}
+  .err{color:#e88;font-size:.85rem;margin-top:12px;text-align:center;}
+</style>
+</head>
+<body>
+<h1>🌿 PlantNet</h1>
+
+<div class="proxy-status">
+  <div class="dot" id="dot"></div>
+  <span id="proxyTxt">Prüfe Proxy …</span>
+</div>
+
+<div class="api-row">
+  <input type="password" id="keyInput" placeholder="PlantNet API-Key …">
+  <button onclick="saveKey()">Speichern</button>
+</div>
+
+<div class="upload-zone" id="zone">
+  <input type="file" id="fileInput" accept="image/*" onchange="handleFile(this.files[0])">
+  <div style="font-size:2rem">🌿</div>
+  <p>Foto hochladen oder reinziehen</p>
+</div>
+
+<div id="preview">
+  <img id="previewImg" src="" alt="">
+  <div class="organ-row">
+    <button class="organ-btn active" data-o="auto" onclick="selOrgan(this)">Auto</button>
+    <button class="organ-btn" data-o="leaf" onclick="selOrgan(this)">Blatt</button>
+    <button class="organ-btn" data-o="flower" onclick="selOrgan(this)">Blüte</button>
+    <button class="organ-btn" data-o="fruit" onclick="selOrgan(this)">Frucht</button>
+    <button class="organ-btn" data-o="bark" onclick="selOrgan(this)">Rinde</button>
+  </div>
+</div>
+
+<div id="status"></div>
+<div class="results" id="results"></div>
+
+<script>
+const PROXY = 'http://localhost:3002';
+const STORE = 'plantnet_key';
+let file = null, organ = 'auto';
+
+const saved = localStorage.getItem(STORE);
+if (saved) document.getElementById('keyInput').value = saved;
+
+async function checkProxy() {
+  try {
+    await fetch(PROXY + '/v2/identify/all?check=1', { method: 'OPTIONS', signal: AbortSignal.timeout(2000) });
+    document.getElementById('dot').className = 'dot ok';
+    document.getElementById('proxyTxt').textContent = 'Proxy aktiv auf localhost:3002';
+  } catch {
+    document.getElementById('dot').className = 'dot err';
+    document.getElementById('proxyTxt').textContent = 'Proxy nicht erreichbar — Terminal: node proxy-plantnet.js';
+  }
+}
+checkProxy();
+setInterval(checkProxy, 8000);
+
+function saveKey() {
+  const k = document.getElementById('keyInput').value.trim();
+  if (!k) return;
+  localStorage.setItem(STORE, k);
+  document.getElementById('status').textContent = '✓ Key gespeichert';
+  setTimeout(() => document.getElementById('status').textContent = '', 2000);
+}
+
+function selOrgan(btn) {
+  document.querySelectorAll('.organ-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  organ = btn.dataset.o;
+}
+
+const zone = document.getElementById('zone');
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.style.borderColor = 'var(--green)'; });
+zone.addEventListener('dragleave', () => zone.style.borderColor = '');
+zone.addEventListener('drop', e => { e.preventDefault(); zone.style.borderColor = ''; const f = e.dataTransfer.files[0]; if (f?.type.startsWith('image/')) handleFile(f); });
+
+function handleFile(f) {
+  file = f;
+  const reader = new FileReader();
+  reader.onload = e => {
+    document.getElementById('previewImg').src = e.target.result;
+    document.getElementById('preview').style.display = 'block';
+    document.getElementById('results').innerHTML = '';
+    identify();
+  };
+  reader.readAsDataURL(f);
+}
+
+async function identify() {
+  const key = localStorage.getItem(STORE);
+  if (!key) { showErr('Bitte API-Key eingeben und speichern.'); return; }
+  if (!file) return;
+  document.getElementById('status').textContent = '🔍 Erkenne Pflanze …';
+  document.getElementById('results').innerHTML = '';
+  try {
+    const fd = new FormData();
+    fd.append('images', file, file.name);
+    if (organ !== 'auto') fd.append('organs', organ);
+    const url = `${PROXY}/v2/identify/all?api-key=${encodeURIComponent(key)}&nb-results=5&lang=de&include-related-images=false`;
+    const res = await fetch(url, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`);
+    document.getElementById('status').textContent = '';
+    render(data.results || []);
+  } catch(err) {
+    document.getElementById('status').textContent = '';
+    showErr('Fehler: ' + err.message);
+  }
+}
+
+function render(results) {
+  const box = document.getElementById('results');
+  if (!results.length) { box.innerHTML = '<div class="err">Keine Pflanze erkannt.</div>'; return; }
+  results.forEach(r => {
+    const sci = r.species?.scientificNameWithoutAuthor || '—';
+    const common = (r.species?.commonNames || []).slice(0,3).join(', ') || '—';
+    const family = r.species?.family?.scientificNameWithoutAuthor || '';
+    const pct = Math.round((r.score || 0) * 100);
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <div>
+        <div class="sci">${esc(sci)}</div>
+        <div class="common">${esc(common)}</div>
+        ${family ? `<div class="family">${esc(family)}</div>` : ''}
+      </div>
+      <div>
+        <div class="pct">${pct}%</div>
+        <div class="bar-wrap"><div class="bar" style="width:${pct}%"></div></div>
+      </div>`;
+    box.appendChild(card);
+  });
+}
+
+function showErr(msg) { document.getElementById('results').innerHTML = `<div class="err">${msg}</div>`; }
+function esc(s) { return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+</script>
+</body>
+</html>
